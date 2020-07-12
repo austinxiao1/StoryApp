@@ -15,3 +15,10 @@ git branch -d <name>: delete a branch
 git commit: commit a change
 git commit -a --amend: modify a commit
 
+git push: to land a diff to branch
+
+pull request: create a pull request, for code review
+merge the checkin master branch.
+
+
+
