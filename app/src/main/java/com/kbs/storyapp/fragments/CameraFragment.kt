@@ -14,6 +14,8 @@ import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.CountDownTimer
+import android.text.format.DateUtils.SECOND_IN_MILLIS
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.KeyEvent
@@ -22,6 +24,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.MimeTypeMap
 import android.widget.ImageButton
+import android.widget.TextView
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -30,6 +33,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.net.toFile
 import androidx.core.view.setPadding
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.lifecycleScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.navigation.Navigation
@@ -51,9 +55,7 @@ import com.kbs.storyapp.R
 import com.kbs.storyapp.KEY_EVENT_ACTION
 import com.kbs.storyapp.KEY_EVENT_EXTRA
 import com.kbs.storyapp.MainActivity
-import com.kbs.storyapp.utils.ANIMATION_FAST_MILLIS
-import com.kbs.storyapp.utils.ANIMATION_SLOW_MILLIS
-import com.kbs.storyapp.utils.simulateClick
+import com.kbs.storyapp.utils.*
 
 typealias LumaListener = (luma: Double) -> Unit
 
@@ -66,6 +68,16 @@ class CameraFragment : Fragment() {
 
     private var displayId: Int = -1
     private var lensFacing: Int = CameraSelector.LENS_FACING_BACK
+
+    private val _shutterDelayTimer = MutableLiveData(0)
+    var shutterDelayTime = _shutterDelayTimer.immutable()
+
+    private val _countdownVisibility = MutableLiveData<Int>()
+    val countdownVisibility = _countdownVisibility.immutable()
+
+    private val _countdownText = MutableLiveData<String>()
+    val countdownText = _countdownText.immutable()
+
     private var preview: Preview? = null
     private var imageCapture: ImageCapture? = null
     private var imageAnalyzer: ImageAnalysis? = null
@@ -78,6 +90,13 @@ class CameraFragment : Fragment() {
 
     /** Blocking camera operations are performed using this executor */
     private lateinit var cameraExecutor: ExecutorService
+
+    init{
+        /*
+
+
+         */
+    }
 
     /** Volume down button receiver used to trigger shutter */
     private val volumeDownReceiver = object : BroadcastReceiver() {
@@ -189,6 +208,17 @@ class CameraFragment : Fragment() {
             // Set up the camera and its use cases
             setUpCamera()
         }
+
+        /*
+
+        val controls = View.inflate(requireContext(), R.layout.camera_ui_container, container)
+        val captureOverlay = container.findViewById<View>(R.id.capture_overlay)
+        val shutterTimerCountDown =  controls.findViewById<TextView>(R.id.shutter_timer_countdown)
+        shutterTimerCountDown.apply { observe(countdownVisibility) { visibility = it }}
+        shutterTimerCountDown.apply { observe(countdownText) { text = it }}
+
+         */
+
     }
 
     /**
@@ -343,77 +373,35 @@ class CameraFragment : Fragment() {
             }
         }
 
+        controls.findViewById<ImageButton>(R.id.timer_toggle_button).setOnClickListener {
+            toggleShutterDelayTimer()
+            if(shutterDelayTime.value ===3){
+                controls.findViewById<ImageButton>(R.id.timer_toggle_button).setImageResource(R.drawable.ic_timer_3s)
+            }else{
+                controls.findViewById<ImageButton>(R.id.timer_toggle_button).setImageResource(R.drawable.ic_timer_off)
+            }
+        }
+
         // Listener for button used to capture photo
         controls.findViewById<ImageButton>(R.id.camera_capture_button).setOnClickListener {
-
-            // Get a stable reference of the modifiable image capture use case
-            imageCapture?.let { imageCapture ->
-
-                // Create output file to hold the image
-                val photoFile = createFile(outputDirectory, FILENAME, PHOTO_EXTENSION)
-
-                // Setup image capture metadata
-                val metadata = ImageCapture.Metadata().apply {
-
-                    // Mirror image when using the front camera
-                    isReversedHorizontal = lensFacing == CameraSelector.LENS_FACING_FRONT
-                }
-
-                // Create output options object which contains file + metadata
-                val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile)
-                    .setMetadata(metadata)
-                    .build()
-
-                // Setup image capture listener which is triggered after photo has been taken
-                imageCapture.takePicture(
-                    outputOptions, cameraExecutor, object : ImageCapture.OnImageSavedCallback {
-                        override fun onError(exc: ImageCaptureException) {
-                            Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
+            if (shutterDelayTime.value == 0) {
+                takePhoto()
+            } else {
+                var waitingTimer =
+                    object :
+                        CountDownTimer(
+                            (shutterDelayTime.value ?: 0) * SECOND_IN_MILLIS, SECOND_IN_MILLIS) {
+                        override fun onTick(millisUntilFinished: Long) {
+                            _countdownText.value =
+                                ((millisUntilFinished / SECOND_IN_MILLIS).toInt() + 1).toString()
                         }
-
-                        override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                            val savedUri = output.savedUri ?: Uri.fromFile(photoFile)
-                            Log.d(TAG, "Photo capture succeeded: $savedUri")
-
-                            // We can only change the foreground Drawable using API level 23+ API
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                // Update the gallery thumbnail with latest picture taken
-                                setGalleryThumbnail(savedUri)
-                            }
-
-                            // Implicit broadcasts will be ignored for devices running API level >= 24
-                            // so if you only target API level 24+ you can remove this statement
-                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-                                requireActivity().sendBroadcast(
-                                    Intent(Camera.ACTION_NEW_PICTURE, savedUri)
-                                )
-                            }
-
-                            // If the folder selected is an external media directory, this is
-                            // unnecessary but otherwise other apps will not be able to access our
-                            // images unless we scan them using [MediaScannerConnection]
-                            val mimeType = MimeTypeMap.getSingleton()
-                                .getMimeTypeFromExtension(savedUri.toFile().extension)
-                            MediaScannerConnection.scanFile(
-                                context,
-                                arrayOf(savedUri.toFile().absolutePath),
-                                arrayOf(mimeType)
-                            ) { _, uri ->
-                                Log.d(TAG, "Image capture scanned into media store: $uri")
-                            }
+                        override fun onFinish() {
+                            _countdownText.value = ""
+                            _countdownVisibility.value = View.GONE
+                            takePhoto()
                         }
-                    })
-
-                // We can only change the foreground Drawable using API level 23+ API
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-
-                    // Display flash animation to indicate that photo was captured
-                    container.postDelayed({
-                        container.foreground = ColorDrawable(Color.WHITE)
-                        container.postDelayed(
-                            { container.foreground = null }, ANIMATION_FAST_MILLIS)
-                    }, ANIMATION_SLOW_MILLIS)
-                }
+                    }.apply { start() }
+                _countdownVisibility.value = View.VISIBLE
             }
         }
 
@@ -443,6 +431,87 @@ class CameraFragment : Fragment() {
                     requireActivity(), R.id.fragment_container
                 ).navigate(CameraFragmentDirections
                     .actionCameraToGallery(outputDirectory.absolutePath))
+            }
+        }
+    }
+
+    fun toggleShutterDelayTimer() {
+        if (shutterDelayTime.value == 0) {
+            _shutterDelayTimer.value = 3
+        } else {
+            _shutterDelayTimer.value = 0
+        }
+    }
+
+    private fun takePhoto(){
+        // Get a stable reference of the modifiable image capture use case
+        imageCapture?.let { imageCapture ->
+
+            // Create output file to hold the image
+            val photoFile = createFile(outputDirectory, FILENAME, PHOTO_EXTENSION)
+
+            // Setup image capture metadata
+            val metadata = ImageCapture.Metadata().apply {
+
+                // Mirror image when using the front camera
+                isReversedHorizontal = lensFacing == CameraSelector.LENS_FACING_FRONT
+            }
+
+            // Create output options object which contains file + metadata
+            val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile)
+                .setMetadata(metadata)
+                .build()
+
+            // Setup image capture listener which is triggered after photo has been taken
+            imageCapture.takePicture(
+                outputOptions, cameraExecutor, object : ImageCapture.OnImageSavedCallback {
+                    override fun onError(exc: ImageCaptureException) {
+                        Log.e(TAG, "Photo capture failed: ${exc.message}", exc)
+                    }
+
+                    override fun onImageSaved(output: ImageCapture.OutputFileResults) {
+                        val savedUri = output.savedUri ?: Uri.fromFile(photoFile)
+                        Log.d(TAG, "Photo capture succeeded: $savedUri")
+
+                        // We can only change the foreground Drawable using API level 23+ API
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            // Update the gallery thumbnail with latest picture taken
+                            setGalleryThumbnail(savedUri)
+                        }
+
+                        // Implicit broadcasts will be ignored for devices running API level >= 24
+                        // so if you only target API level 24+ you can remove this statement
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+                            requireActivity().sendBroadcast(
+                                Intent(Camera.ACTION_NEW_PICTURE, savedUri)
+                            )
+                        }
+
+                        // If the folder selected is an external media directory, this is
+                        // unnecessary but otherwise other apps will not be able to access our
+                        // images unless we scan them using [MediaScannerConnection]
+                        val mimeType = MimeTypeMap.getSingleton()
+                            .getMimeTypeFromExtension(savedUri.toFile().extension)
+                        MediaScannerConnection.scanFile(
+                            context,
+                            arrayOf(savedUri.toFile().absolutePath),
+                            arrayOf(mimeType)
+                        ) { _, uri ->
+                            Log.d(TAG, "Image capture scanned into media store: $uri")
+                        }
+                    }
+                })
+
+            // We can only change the foreground Drawable using API level 23+ API
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+
+                // Display flash animation to indicate that photo was captured
+                container.postDelayed({
+                    container.foreground = ColorDrawable(Color.WHITE)
+                    container.postDelayed(
+                        { container.foreground = null }, ANIMATION_FAST_MILLIS
+                    )
+                }, ANIMATION_SLOW_MILLIS)
             }
         }
     }
