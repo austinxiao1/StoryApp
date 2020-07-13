@@ -23,6 +23,50 @@
     android:layout_height="match_parent">
 
     <!-- Camera control and gallery buttons -->
+
+
+    <View
+        android:id="@+id/capture_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#80FFFFFF"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        />
+
+    <TextView
+        android:id="@+id/shutter_timer_countdown"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:includeFontPadding="false"
+        android:text=""
+        android:textColor="@android:color/white"
+        android:textSize="60sp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        />
+
+    <ImageButton
+        android:id="@+id/timer_toggle_button"
+        android:layout_width="@dimen/round_button_small"
+        android:layout_height="@dimen/round_button_small"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/ic_outer_circle"
+        android:contentDescription="@string/toggle_timer"
+        android:padding="8dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_timer_off"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        />
+
     <ImageButton
         android:id="@+id/camera_switch_button"
         android:layout_width="@dimen/round_button_medium"
